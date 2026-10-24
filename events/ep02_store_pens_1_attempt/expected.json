@@ -1,0 +1,26 @@
+{
+  "label_source": "Adapted from vlm_benchmark/verifier/episodes_v1 labels for the current interface: per-object intent, ORIGINAL and CURRENT top views only. Never send this file to a model.",
+  "intent": [
+    {
+      "object": "black_pen",
+      "mode": "all",
+      "number": 0
+    },
+    {
+      "object": "red_pen",
+      "mode": "all",
+      "number": 0
+    }
+  ],
+  "attempts": {
+    "1": {
+      "success": true,
+      "scenario": "complete"
+    }
+  },
+  "playback": {
+    "completes": true,
+    "batches": 1,
+    "reason": "Attempt 1 is complete."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "label_source": "Adapted from vlm_benchmark/verifier/episodes_v1 labels for the current interface: per-object intent, ORIGINAL and CURRENT top views only. Never send this file to a model.",
+  "intent": [
+    {
+      "object": "pencil",
+      "mode": "take",
+      "number": 1
+    },
+    {
+      "object": "black_pen",
+      "mode": "take",
+      "number": 1
+    },
+    {
+      "object": "red_pen",
+      "mode": "take",
+      "number": 1
+    }
+  ],
+  "attempts": {
+    "1": {
+      "success": false,
+      "scenario": "wrong_cup"
+    },
+    "2": {
+      "success": false,
+      "scenario": "dropped_target"
+    },
+    "3": {
+      "success": true,
+      "scenario": "complete"
+    }
+  },
+  "playback": {
+    "completes": false,
+    "batches": 1,
+    "reason": "Attempt 1 has a wrong cup; retrieval is unsupported."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "label_source": "Adapted from vlm_benchmark/verifier/episodes_v1 labels for the current interface: per-object intent, ORIGINAL and CURRENT top views only. Never send this file to a model.",
+  "intent": [
+    {
+      "object": "black_pen",
+      "mode": "all",
+      "number": 0
+    },
+    {
+      "object": "red_pen",
+      "mode": "all",
+      "number": 0
+    }
+  ],
+  "attempts": {
+    "1": {
+      "success": false,
+      "scenario": "disturbed_unselected"
+    },
+    "2": {
+      "success": true,
+      "scenario": "complete_restored"
+    }
+  },
+  "playback": {
+    "completes": false,
+    "batches": 1,
+    "reason": "Attempt 1 moves the pencil the request says must end in its original position; restoration is unsupported."
+  }
+}
