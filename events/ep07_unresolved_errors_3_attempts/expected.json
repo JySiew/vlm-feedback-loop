@@ -22,7 +22,7 @@
       "scenario": "wrong_cup"
     },
     "3": {
-      "success": false,
+      "success": true,
       "scenario": "disturbed_unselected"
     }
   },

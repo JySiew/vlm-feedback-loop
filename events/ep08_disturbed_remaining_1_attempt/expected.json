@@ -19,13 +19,13 @@
   ],
   "attempts": {
     "1": {
-      "success": false,
+      "success": true,
       "scenario": "disturbed_unselected"
     }
   },
   "playback": {
-    "completes": false,
+    "completes": true,
     "batches": 1,
-    "reason": "Attempt 1 moves pens the request says must stay; the only attempt."
+    "reason": "Attempt 1 stores one pencil, one black pen and one red pen in the correct cups; the remaining pens moved but keep their loose counts, and the evaluator policy judges counts and destinations, not poses."
   }
 }

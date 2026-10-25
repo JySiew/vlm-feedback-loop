@@ -15,13 +15,13 @@ SOCLAAS_ENV_PATH = Path("~/Downloads/soclaas.env").expanduser()
 MODEL_NAME = "qwen3.8:27b"
 MAX_BATCHES = 3
 MIN_CONFIDENCE = 0.6
-PLANNER_IMAGE_MAX_SIDE = 640
+PLANNER_IMAGE_MAX_SIDE = None # 640
 SKILL_NAMES = [
     "pick_place_pencil",
     "pick_place_black_pen",
     "pick_place_red_pen"
 ]
-MODEL_TYPE = "soclass"  # or "claude"
+MODEL_TYPE = "soclaas"  # "claude/soclaas"
 
 # For Simulator
 SIMULATOR_MODE = True
@@ -86,7 +86,7 @@ def load_event(event_dir: Path) -> dict:
 
 
 def load_events(events_dir: Path) -> list[dict]:
-    """Read every event subdirectory, sorted by name."""
+    """Read every event subdirectory"""
     if not events_dir.is_dir():
         raise FileNotFoundError(f"Events directory not found: {events_dir}")
     events = [

@@ -291,7 +291,7 @@ class ClaudeModel(VlmModel):
 
     def __init__(self, model_name="claude-haiku-5-5", api_key=None, effort="medium"):
         self._model_name = model_name
-        self._max_tokens = 16000  # Includes thinking tokens.
+        self._max_tokens = 16000
         self._effort = effort
         self._client = anthropic.Anthropic(api_key=api_key, max_retries=3)
 
@@ -309,7 +309,6 @@ class ClaudeModel(VlmModel):
 
     @staticmethod
     def _block(part):
-        """Convert an OpenAI-style text/image_url part into a Claude block."""
         if part["type"] == "text":
             return {"type": "text", "text": part["text"]}
         header, _, data = part["image_url"]["url"].partition(",")
