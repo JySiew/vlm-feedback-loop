@@ -11,7 +11,8 @@ from utils.VlmModel import ClaudeModel, SoCLaaSModel
 
 # Configuration
 PROJECT_DIR = Path(__file__).resolve().parent
-SOCLAAS_ENV_PATH = Path("~/Downloads/soclaas.env").expanduser()
+_default_env = Path("~/Downloads/soclaas.env").expanduser()
+SOCLAAS_ENV_PATH = _default_env if _default_env.is_file() else (PROJECT_DIR / ".env")
 MODEL_NAME = "qwen3.8:27b"
 MAX_BATCHES = 3
 MIN_CONFIDENCE = 0.6
@@ -22,9 +23,12 @@ SKILL_NAMES = [
     "pick_place_red_pen"
 ]
 MODEL_TYPE = "soclaas"  # "claude/soclaas"
+POLICY_NOISE_SCHEDULER_TYPE = "DDIM"
+POLICY_NUM_INFERENCE_STEPS = 5
+POLICY_N_ACTION_STEPS = 16
 
 # For Simulator
-SIMULATOR_MODE = True
+SIMULATOR_MODE = False
 EVENTS_DIR = PROJECT_DIR / "events"
 IMAGE_SUFFIXES = {
     ".jpg",
@@ -209,8 +213,12 @@ def make_executor(skills: Skills, event: dict | None = None) -> Executor:
     """Build the executor; in simulator mode it replays one event's images."""
     if SIMULATOR_MODE:
         return LocalSimulator(event["before"], event["after"], event["request"], skills)
-    # CHANGE_ME: REPLLACE THIS WITH REAL ROBOT EXECUTOR CLASS with proper initialization
-    return LeRobotExecutor(skills)
+    return LeRobotExecutor(
+        skills,
+        noise_scheduler_type=POLICY_NOISE_SCHEDULER_TYPE,
+        num_inference_steps=POLICY_NUM_INFERENCE_STEPS,
+        n_action_steps=POLICY_N_ACTION_STEPS,
+    )
 
 
 def report(result: dict) -> None:
