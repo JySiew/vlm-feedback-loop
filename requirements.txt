@@ -1,6 +1,9 @@
+# Requires Python >=3.12 (lerobot 0.6+). utils/Executor.py needs lerobot >=0.6.
 openai
 python-dotenv
 ipykernel
 numpy
 Pillow
 anthropic
+torch
+lerobot[feetech,diffusion]==0.6.1

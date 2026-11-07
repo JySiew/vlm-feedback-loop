@@ -1,0 +1,114 @@
+{
+    "retry_limit": 3,
+    "evaluations": [
+        {
+            "name": "store_one_each_no_feedback",
+            "retry_limit": 1,
+            "request": "Put away one pencil, one black pen and one red pen.",
+            "initial_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "count": 2
+                    },
+                    {
+                        "name": "black_pen",
+                        "count": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "count": 1
+                    }
+                ]
+            },
+            "expected_intent": [
+                {
+                    "object": "pencil",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "black_pen",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "red_pen",
+                    "mode": "take",
+                    "number": 1
+                }
+            ],
+            "expected_final_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "stored": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "stored": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "stored": 1
+                    }
+                ]
+            },
+            "expected_status": "completed"
+        },
+        {
+            "name": "store_one_each_feedback",
+            "request": "Put away one pencil, one black pen and one red pen.",
+            "initial_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "count": 2
+                    },
+                    {
+                        "name": "black_pen",
+                        "count": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "count": 1
+                    }
+                ]
+            },
+            "expected_intent": [
+                {
+                    "object": "pencil",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "black_pen",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "red_pen",
+                    "mode": "take",
+                    "number": 1
+                }
+            ],
+            "expected_final_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "stored": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "stored": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "stored": 1
+                    }
+                ]
+            },
+            "expected_status": "completed"
+        }
+    ]
+}

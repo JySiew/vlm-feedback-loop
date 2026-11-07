@@ -1,3 +1,4 @@
+import argparse
 import base64
 import json
 from io import BytesIO
@@ -5,6 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from evaluator import load_evaluations, run_session
 from utils.Executor import ExecStatus, Executor, LeRobotExecutor, LocalSimulator
 from utils.Skills import Skills
 from utils.VlmModel import ClaudeModel, SoCLaaSModel
@@ -16,25 +18,27 @@ SOCLAAS_ENV_PATH = _default_env if _default_env.is_file() else (PROJECT_DIR / ".
 MODEL_NAME = "qwen3.8:27b"
 MAX_BATCHES = 3
 MIN_CONFIDENCE = 0.6
-PLANNER_IMAGE_MAX_SIDE = None # 640
-SKILL_NAMES = [
-    "pick_place_pencil",
-    "pick_place_black_pen",
-    "pick_place_red_pen"
-]
+PLANNER_IMAGE_MAX_SIDE = None  # 640
+SKILL_NAMES = ["pick_place_pencil", "pick_place_black_pen", "pick_place_red_pen"]
 MODEL_TYPE = "soclaas"  # "claude/soclaas"
 POLICY_NOISE_SCHEDULER_TYPE = "DDIM"
 POLICY_NUM_INFERENCE_STEPS = 5
 POLICY_N_ACTION_STEPS = 16
 
+
+# Mode Enum
+class ExecutionMode:
+    SIMULATOR = "simulator"
+    REAL_ROBOT = "real_robot"
+    EVALUATION = "evaluation"
+    EVALUATION_SIMULATOR = "evaluation_simulator"
+
+
 # For Simulator
 SIMULATOR_MODE = False
 EVENTS_DIR = PROJECT_DIR / "events"
-IMAGE_SUFFIXES = {
-    ".jpg",
-    ".jpeg",
-    ".png"
-}
+EVALUATION_RESULTS_DIR = PROJECT_DIR / "evaluation_result"
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
 def image_to_data_url(image, max_side=None) -> str:
@@ -122,19 +126,49 @@ def passes_success_gate(evaluation: dict, steps: int) -> bool:
     return bool(evaluation["progress"]) or steps == 0
 
 
+def close_executor(executor: Executor) -> None:
+    """Close without letting a hardware fault replace a result or a Ctrl-C."""
+    try:
+        executor.close()
+    except Exception as exc:
+        print(f"Warning: close failed, check the arm: {type(exc).__name__}: {exc}")
+
+
 def run_feedback_loop(
-    model, executor: Executor, request: str, max_batches: int = MAX_BATCHES
+    model,
+    executor: Executor,
+    request: str,
+    max_batches: int = MAX_BATCHES,
+    observer=None,
 ) -> dict:
     """
     Intent once, then plan -> execute batch -> evaluate
     Loop is bounded by max_batches.
+
+    An optional observer receives on_capture(index, image) straight after each
+    capture (0 is the original) and on_batch(entry) once per finished batch.
     """
     steps = 0
     batches = 0
     goals = None
     history = []
+    debug = {}
+    reported = 0
+
+    def captured(index, image):
+        if observer is not None:
+            observer.on_capture(index, image)
+
+    def report_batches():
+        nonlocal reported
+        if observer is None:
+            return
+        while reported < len(history):
+            reported += 1
+            observer.on_batch(history[reported - 1])
 
     def outcome(status, reason):
+        report_batches()
         return {
             "status": status,
             "steps": steps,
@@ -154,6 +188,7 @@ def run_feedback_loop(
         executor.connect()
         # Planners get a resized original image; the evaluator gets full size.
         original = executor.capture().overhead
+        captured(0, original)
         original_plan_url = image_to_data_url(original, PLANNER_IMAGE_MAX_SIDE)
         original_eval_url = image_to_data_url(original)
         # Perform intent assessment only once, from the original request
@@ -181,10 +216,12 @@ def run_feedback_loop(
             batches = batch
 
             current = executor.capture().overhead
+            captured(batch, current)
             evaluation = model.evaluate(
                 original_eval_url, image_to_data_url(current), request, goals
             )
             entry["evaluation"] = evaluation
+            report_batches()
             print(f"Evaluation {batch}: {evaluation['reason']}")
 
             if passes_success_gate(evaluation, steps):
@@ -206,12 +243,14 @@ def run_feedback_loop(
     except Exception as exc:
         return outcome("error", f"{type(exc).__name__}: {exc}")
     finally:
-        executor.close()
+        close_executor(executor)
 
 
-def make_executor(skills: Skills, event: dict | None = None) -> Executor:
+def make_executor(
+    mode: ExecutionMode, skills: Skills, event: dict | None = None
+) -> Executor:
     """Build the executor; in simulator mode it replays one event's images."""
-    if SIMULATOR_MODE:
+    if mode == ExecutionMode.SIMULATOR:
         return LocalSimulator(event["before"], event["after"], event["request"], skills)
     return LeRobotExecutor(
         skills,
@@ -221,6 +260,23 @@ def make_executor(skills: Skills, event: dict | None = None) -> Executor:
     )
 
 
+def simulated_evaluations(
+    evaluations: list[dict], skills: Skills
+) -> tuple[list[dict], list[Executor]]:
+    """Pair each evaluation with a replay of its recorded event."""
+    capped = []
+    executors = []
+    for evaluation in evaluations:
+        if evaluation["event"] is None:
+            raise ValueError(f"Evaluation {evaluation['name']!r} has no event")
+        event = load_event(EVENTS_DIR / evaluation["event"])
+        # A recording cannot show more batches than it has images.
+        limit = max(1, min(evaluation["retry_limit"], len(event["after"])))
+        capped.append({**evaluation, "retry_limit": limit})
+        executors.append(make_executor(ExecutionMode.SIMULATOR, skills, event))
+    return capped, executors
+
+
 def report(result: dict) -> None:
     print(
         f"Result: {result['status']} after {result['batches']} batch(es), "
@@ -228,16 +284,27 @@ def report(result: dict) -> None:
     )
 
 
-def main() -> int:
+def main(
+    execution_mode: ExecutionMode = ExecutionMode.REAL_ROBOT, eval_json: str = ""
+) -> int:
+    Execution_Mode = execution_mode
     executors = []
     try:
+        # A bad evaluation file must stop before any client or executor exists.
+        simulated = execution_mode == ExecutionMode.EVALUATION_SIMULATOR
+        if execution_mode == ExecutionMode.EVALUATION or simulated:
+            evaluations = load_evaluations(Path(eval_json))
         # Validate the executor configuration before creating an API client.
         skills = Skills(SKILL_NAMES)
-        if SIMULATOR_MODE:
+        if execution_mode == ExecutionMode.SIMULATOR:
             events = load_events(EVENTS_DIR)
-            executors = [make_executor(skills, event) for event in events]
+            executors = [
+                make_executor(execution_mode, skills, event) for event in events
+            ]
+        elif simulated:
+            evaluations, executors = simulated_evaluations(evaluations, skills)
         else:
-            executors = [make_executor(skills)]
+            executors = [make_executor(execution_mode, skills)]
         # Model Initialization
         model = None
         if MODEL_TYPE == "claude":
@@ -245,7 +312,7 @@ def main() -> int:
         elif MODEL_TYPE == "soclaas":
             model = SoCLaaSModel(model_name=MODEL_NAME, env_path=SOCLAAS_ENV_PATH)
 
-        if SIMULATOR_MODE:
+        if execution_mode == ExecutionMode.SIMULATOR:
             # Each loop is one recorded event with its own request and images.
             statuses = {}
             for event, executor in zip(events, executors):
@@ -262,23 +329,54 @@ def main() -> int:
                 print(f"  {name}: {status}")
             return 0 if all(s == "completed" for s in statuses.values()) else 1
 
-        while True:
-            # Ask for a user request
-            user_request = input("Enter a request (or 'exit' to quit): ").strip()
-            if user_request.lower() == "exit":
-                print("Exiting the feedback loop.")
-                return 0
-            result = run_feedback_loop(
-                model, executors[0], request=user_request, max_batches=MAX_BATCHES
+        elif execution_mode == ExecutionMode.REAL_ROBOT:
+            while True:
+                # Ask for a user request
+                user_request = input("Enter a request (or 'exit' to quit): ").strip()
+                if user_request.lower() == "exit":
+                    print("Exiting the feedback loop.")
+                    return 0
+                result = run_feedback_loop(
+                    model, executors[0], request=user_request, max_batches=MAX_BATCHES
+                )
+                report(result)
+        elif execution_mode == ExecutionMode.EVALUATION or simulated:
+            return run_session(
+                evaluations,
+                model,
+                executors if simulated else executors * len(evaluations),
+                run_feedback_loop,
+                str(model._model_name),
+                EVALUATION_RESULTS_DIR,
+                # Nobody resets a replay, so it never waits for the operator.
+                input_fn=(lambda prompt: "") if simulated else input,
             )
-            report(result)
     except Exception as exc:
         print(f"Setup failed: {type(exc).__name__}: {exc}")
         return 1
     finally:
         for executor in executors:
-            executor.close()
+            close_executor(executor)
+
+
+def parse_args(argv: list[str] | None = None) -> tuple[str, str]:
+    """Return the execution mode and evaluation file from the command line."""
+    parser = argparse.ArgumentParser(description="Run the VLM feedback loop.")
+    parser.add_argument("--eval", metavar="PATH", help="run this evaluation file")
+    parser.add_argument(
+        "--simulator",
+        action="store_true",
+        help="replay each evaluation's recorded event instead of using the arm",
+    )
+    args = parser.parse_args(argv)
+    if args.simulator and args.eval is None:
+        parser.error("--simulator needs --eval")
+    if args.eval is None:
+        return ExecutionMode.REAL_ROBOT, ""
+    if args.simulator:
+        return ExecutionMode.EVALUATION_SIMULATOR, args.eval
+    return ExecutionMode.EVALUATION, args.eval
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(*parse_args()))

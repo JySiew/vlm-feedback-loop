@@ -1,0 +1,159 @@
+{
+    "retry_limit": 3,
+    "evaluations": [
+        {
+            "name": "one_each",
+            "event": "ep01_one_each_1_attempt",
+            "request": "Put away one pencil, one black pen and one red pen. Keep all remaining objects in their original positions.",
+            "initial_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "count": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "count": 3
+                    },
+                    {
+                        "name": "red_pen",
+                        "count": 2
+                    }
+                ]
+            },
+            "expected_intent": [
+                {
+                    "object": "pencil",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "black_pen",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "red_pen",
+                    "mode": "take",
+                    "number": 1
+                }
+            ],
+            "expected_final_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "stored": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "stored": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "stored": 1
+                    }
+                ]
+            }
+        },
+        {
+            "name": "disturbed_remaining",
+            "event": "ep08_disturbed_remaining_1_attempt",
+            "request": "Please store one pencil, one black pen and one red pen; the remaining pens should stay in their original positions.",
+            "initial_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "count": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "count": 3
+                    },
+                    {
+                        "name": "red_pen",
+                        "count": 2
+                    }
+                ]
+            },
+            "expected_intent": [
+                {
+                    "object": "pencil",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "black_pen",
+                    "mode": "take",
+                    "number": 1
+                },
+                {
+                    "object": "red_pen",
+                    "mode": "take",
+                    "number": 1
+                }
+            ],
+            "expected_final_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "stored": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "stored": 1
+                    },
+                    {
+                        "name": "red_pen",
+                        "stored": 1
+                    }
+                ]
+            }
+        },
+        {
+            "name": "unresolved_errors",
+            "event": "ep07_unresolved_errors_3_attempts",
+            "request": "Tidy away every black and red pen, with the pencil left in its original position.",
+            "initial_state": {
+                "objects": [
+                    {
+                        "name": "pencil",
+                        "count": 1
+                    },
+                    {
+                        "name": "black_pen",
+                        "count": 2
+                    },
+                    {
+                        "name": "red_pen",
+                        "count": 2
+                    }
+                ]
+            },
+            "expected_intent": [
+                {
+                    "object": "black_pen",
+                    "mode": "all",
+                    "number": 0
+                },
+                {
+                    "object": "red_pen",
+                    "mode": "all",
+                    "number": 0
+                }
+            ],
+            "expected_final_state": {
+                "objects": [
+                    {
+                        "name": "black_pen",
+                        "stored": 2
+                    },
+                    {
+                        "name": "red_pen",
+                        "stored": 1
+                    }
+                ]
+            },
+            "expected_status": "failed"
+        }
+    ]
+}

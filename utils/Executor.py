@@ -10,17 +10,16 @@ from typing import Any
 
 import numpy as np
 import torch
-from PIL import Image
-
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.configs import FeatureType, PolicyFeature
 from lerobot.envs.configs import EnvConfig
-from lerobot.robots import make_robot_from_config
-from lerobot.robots.so_follower import SO101FollowerConfig
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
-from lerobot.policies.factory import make_policy
 from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.factory import make_policy
 from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.processor.pipeline import PolicyProcessorPipeline
+from lerobot.robots import make_robot_from_config
+from lerobot.robots.so_follower import SO101FollowerConfig
+from PIL import Image
 
 from .Skills import Skills
 
@@ -110,7 +109,12 @@ class LocalSimulator(Executor):
                 image = np.array(source.convert("RGB"))
         if not isinstance(image, np.ndarray) or image.dtype != np.uint8:
             raise ValueError("Images must be file paths or uint8 RGB arrays")
-        if image.ndim != 3 or image.shape[2] != 3 or not image.shape[0] or not image.shape[1]:
+        if (
+            image.ndim != 3
+            or image.shape[2] != 3
+            or not image.shape[0]
+            or not image.shape[1]
+        ):
             raise ValueError("Image arrays must have shape (height, width, 3)")
         return image.copy()
 
@@ -124,7 +128,9 @@ class LocalSimulator(Executor):
             if self._closed:
                 raise RuntimeError("Simulator is closed; call connect() to reopen it")
             if not self._batch_open and self._index >= len(self._images) - 1:
-                raise RuntimeError("No feedback images remaining: playback is exhausted")
+                raise RuntimeError(
+                    "No feedback images remaining: playback is exhausted"
+                )
         except (ValueError, RuntimeError) as exc:
             return ExecResult(ExecStatus.ERROR, time.monotonic() - started, str(exc))
 
@@ -186,6 +192,10 @@ class LeRobotExecutor(Executor):
 
         # Cache loaded policies to prevent reloading weights on every skill
         self.policies: dict[str, torch.nn.Module] = {}
+        # Each checkpoint has its own normalization, so processors are per skill.
+        self._processors: dict[
+            str, tuple[PolicyProcessorPipeline, PolicyProcessorPipeline]
+        ] = {}
 
     def connect(self) -> None:
         """Connect to the SO-101 bus and cameras, caching the baseline home pose."""
@@ -221,15 +231,18 @@ class LeRobotExecutor(Executor):
         )
 
         self.robot = make_robot_from_config(cfg)
-        self.robot.connect()
+        try:
+            self.robot.connect()
+        except Exception:
+            robot, self.robot = self.robot, None
+            self._release_devices(robot)
+            raise
         self._connected = True
 
         # Capture initial resting pose for post-skill home resets
         time.sleep(1.0)
         initial_obs = self.robot.get_observation()
-        self._state_keys = tuple(
-            key for key in initial_obs if key.endswith(".pos")
-        )
+        self._state_keys = tuple(key for key in initial_obs if key.endswith(".pos"))
         if self._state_keys:
             self.home_qpos = self._extract_state(initial_obs)
             print(f"[LeRobotExecutor] Home qpos captured: {self.home_qpos.round(2)}")
@@ -239,20 +252,46 @@ class LeRobotExecutor(Executor):
     def disconnect(self) -> None:
         if self._connected and self.robot is not None:
             print("[LeRobotExecutor] Disconnecting robot...")
-            self.robot.disconnect()
+            # Clear first: a failed disconnect must not leave a dead robot to reuse.
+            robot, self.robot = self.robot, None
             self._connected = False
-            self.robot = None
+            try:
+                robot.disconnect()
+            except Exception:
+                self._release_devices(robot)
+                raise
+
+    @staticmethod
+    def _release_devices(robot) -> None:
+        """Best effort: free each open device so the next connect can claim it."""
+        for camera in robot.cameras.values():
+            try:
+                if camera.is_connected:
+                    camera.disconnect()
+            except Exception as exc:
+                print(f"[LeRobotExecutor] Unable to release camera: {exc}")
+        try:
+            if robot.bus.is_connected:
+                # Skip the torque write: that is the step most likely to have failed.
+                robot.bus.disconnect(False)
+        except Exception as exc:
+            print(f"[LeRobotExecutor] Unable to release motor bus: {exc}")
 
     def _get_policy(self, skill_name: str):
         """Lazy-load and cache the policy checkpoint on the GPU."""
         if skill_name in self.policies:
+            self._preprocessor, self._postprocessor = self._processors[skill_name]
             return self.policies[skill_name]
 
         if skill_name not in self.CHECKPOINT_PATHS:
-            raise ValueError(f"Unknown skill '{skill_name}'. Must be one of {list(self.CHECKPOINT_PATHS.keys())}")
+            raise ValueError(
+                f"Unknown skill '{skill_name}'. Must be one of {list(self.CHECKPOINT_PATHS.keys())}"
+            )
 
         path = self.CHECKPOINT_PATHS[skill_name]
-        print(f"[LeRobotExecutor] Loading policy '{skill_name}' from {path} onto {self.device}...")
+        print(
+            f"[LeRobotExecutor] Loading policy '{skill_name}' from {path} onto {self.device}..."
+        )
 
         config = DiffusionConfig.from_pretrained(path)
         config.device = self.device
@@ -286,6 +325,7 @@ class LeRobotExecutor(Executor):
 
         policy.eval()
         self.policies[skill_name] = policy
+        self._processors[skill_name] = (self._preprocessor, self._postprocessor)
         return policy
 
     def _extract_state(self, observation: dict[str, Any]) -> np.ndarray:
@@ -307,9 +347,7 @@ class LeRobotExecutor(Executor):
                 f"Policy returned {action.size} action values; "
                 f"expected {len(self._state_keys)}"
             )
-        return {
-            key: float(value) for key, value in zip(self._state_keys, action)
-        }
+        return {key: float(value) for key, value in zip(self._state_keys, action)}
 
     def capture(self) -> Observation:
         """Capture current frames and return an Observation dataclass with PIL images."""
@@ -344,9 +382,7 @@ class LeRobotExecutor(Executor):
             print(f"[LeRobotExecutor] Unable to read state for homing: {exc}")
             return
         current_qpos = self._extract_state(obs)
-        home_qpos = np.asarray(
-            self.home_qpos, dtype=np.float32
-        )
+        home_qpos = np.asarray(self.home_qpos, dtype=np.float32)
 
         # Linear interpolation between current and home joint states
         for step in range(1, steps + 1):
@@ -361,7 +397,9 @@ class LeRobotExecutor(Executor):
         policy = self._get_policy(skill_name)
         policy.reset()
 
-        print(f"[LeRobotExecutor] Executing skill: {skill_name} (max duration: {duration_s}s)...")
+        print(
+            f"[LeRobotExecutor] Executing skill: {skill_name} (max duration: {duration_s}s)..."
+        )
         start_time = time.time()
         loop_dt = 1.0 / 30.0  # 30 Hz control loop
 
@@ -373,7 +411,9 @@ class LeRobotExecutor(Executor):
                 raw_obs = self.robot.get_observation()
 
                 # 2. Apply the checkpoint's saved normalization and batching pipeline.
-                overhead_np = raw_obs.get("observation.images.overhead", raw_obs.get("overhead"))
+                overhead_np = raw_obs.get(
+                    "observation.images.overhead", raw_obs.get("overhead")
+                )
                 wrist_np = raw_obs.get("observation.images.wrist", raw_obs.get("wrist"))
                 state_np = self._extract_state(raw_obs)
 
@@ -388,9 +428,7 @@ class LeRobotExecutor(Executor):
                     raw_observation,
                     torch.device(self.device),
                 )
-                observation = self._preprocessor(
-                    raw_observation
-                )
+                observation = self._preprocessor(raw_observation)
 
                 with torch.no_grad():
                     action_tensor = policy.select_action(observation)
