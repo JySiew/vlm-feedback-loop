@@ -55,6 +55,10 @@ class Executor(ABC):
             raise TypeError("skills must be a Skills instance")
         self.skills = skills
 
+    def peek(self) -> Observation:
+        """Look at the scene between two skills in a batch."""
+        return self.capture()
+
     def _validate_skill(self, skill_name: str) -> None:
         if not isinstance(skill_name, str) or not skill_name.strip():
             raise ValueError("skill_name cannot be an empty string")
@@ -139,6 +143,10 @@ class LocalSimulator(Executor):
             self._observed_at = time.time()
             self._batch_open = True
         return ExecResult(ExecStatus.COMPLETED, time.monotonic() - started)
+
+    def peek(self) -> Observation:
+        """Show this batch's recorded image without ending the batch."""
+        return Observation(self._images[self._index].copy(), self._observed_at)
 
     def capture(self) -> Observation:
         if self._closed:

@@ -9,7 +9,7 @@ from PIL import Image
 from evaluator import load_evaluations, run_session
 from utils.Executor import ExecStatus, Executor, LeRobotExecutor, LocalSimulator
 from utils.Skills import Skills
-from utils.VlmModel import ClaudeModel, SoCLaaSModel
+from utils.VlmModel import OBJECT_SKILLS, ClaudeModel, SoCLaaSModel
 
 # Configuration
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -126,6 +126,27 @@ def passes_success_gate(evaluation: dict, steps: int) -> bool:
     return bool(evaluation["progress"]) or steps == 0
 
 
+def adjust_plan(pending: list[str], evaluation: dict) -> tuple[list[str], list[str]]:
+    """
+    Drop skills the evaluator says are no longer needed, keeping the order.
+    Returns the kept and removed skills. An unknown count keeps the skill.
+    """
+    left = {
+        OBJECT_SKILLS[item["object"]]: item["remaining"]
+        for item in evaluation["progress"]
+    }
+    kept = []
+    removed = []
+    for skill in pending:
+        if left.get(skill) == 0:
+            removed.append(skill)
+            continue
+        kept.append(skill)
+        if left.get(skill):
+            left[skill] -= 1
+    return kept, removed
+
+
 def close_executor(executor: Executor) -> None:
     """Close without letting a hardware fault replace a result or a Ctrl-C."""
     try:
@@ -145,8 +166,11 @@ def run_feedback_loop(
     Intent once, then plan -> execute batch -> evaluate
     Loop is bounded by max_batches.
 
-    An optional observer receives on_capture(index, image) straight after each
-    capture (0 is the original) and on_batch(entry) once per finished batch.
+    Between skills in a batch, the evaluator checks the scene and any skills no
+    longer needed are removed from the rest of that batch.
+
+    An optional observer receives on_capture(name, image) straight after each
+    capture and on_batch(entry) once per finished batch.
     """
     steps = 0
     batches = 0
@@ -155,9 +179,9 @@ def run_feedback_loop(
     debug = {}
     reported = 0
 
-    def captured(index, image):
+    def captured(name, image):
         if observer is not None:
-            observer.on_capture(index, image)
+            observer.on_capture(name, image)
 
     def report_batches():
         nonlocal reported
@@ -188,7 +212,7 @@ def run_feedback_loop(
         executor.connect()
         # Planners get a resized original image; the evaluator gets full size.
         original = executor.capture().overhead
-        captured(0, original)
+        captured("initial", original)
         original_plan_url = image_to_data_url(original, PLANNER_IMAGE_MAX_SIDE)
         original_eval_url = image_to_data_url(original)
         # Perform intent assessment only once, from the original request
@@ -197,11 +221,18 @@ def run_feedback_loop(
         plan = check_executable(model.plan(original_plan_url, goals), executor.skills)
 
         for batch in range(1, max_batches + 1):
-            entry = {"batch": batch, "plan": plan, "executed_skills": []}
+            entry = {
+                "batch": batch,
+                "plan": plan,
+                "executed_skills": [],
+                "adjustments": [],
+            }
             history.append(entry)
             print(f"Batch {batch} plan: {plan['plan']}. {plan['reason']}")
             # Execute the complete batch; an empty plan is still evaluated.
-            for skill_name in plan["plan"]:
+            pending = list(plan["plan"])
+            while pending:
+                skill_name = pending.pop(0)
                 result = executor.run(skill_name)
                 entry["execution_status"] = result.status.value
                 # A timeout may still have succeeded slowly, so it is evaluated.
@@ -213,10 +244,22 @@ def run_feedback_loop(
                 entry["executed_skills"].append(skill_name)
                 steps += 1
                 print(f"Step {steps}: executed {skill_name} ({result.status.value}).")
+                if pending:
+                    image = executor.peek().overhead
+                    captured(f"state_{batch}_step_{steps}", image)
+                    check = model.evaluate(
+                        original_eval_url, image_to_data_url(image), request, goals
+                    )
+                    pending, removed = adjust_plan(pending, check)
+                    entry["adjustments"].append(
+                        {"after_step": steps, "removed": removed, "evaluation": check}
+                    )
+                    if removed:
+                        print(f"Plan adjusted: removed {removed}, next {pending}.")
             batches = batch
 
             current = executor.capture().overhead
-            captured(batch, current)
+            captured(f"state_{batch}", current)
             evaluation = model.evaluate(
                 original_eval_url, image_to_data_url(current), request, goals
             )

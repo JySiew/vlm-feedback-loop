@@ -99,9 +99,8 @@ class TrialRecorder:
         self.directory = directory
         self.directory.mkdir()
 
-    def on_capture(self, index: int, image) -> None:
-        name = f"state_{index}.png" if index else "initial.png"
-        Image.fromarray(image).save(self.directory / name)
+    def on_capture(self, name: str, image) -> None:
+        Image.fromarray(image).save(self.directory / f"{name}.png")
 
     def on_batch(self, entry: dict) -> None:
         self.append(entry)
