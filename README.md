@@ -79,7 +79,39 @@ The arm settings live in `LeRobotExecutor` in `utils/Executor.py`:
 | Serial port | `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B79018706-if00` |
 | Robot id | `orange_follower_arm` |
 | Cameras | overhead index 0, wrist index 2 |
-| Checkpoints | `CHECKPOINT_PATHS`, under `/home/hoonc/outputs/diffusion/` |
+| Checkpoints | `CHECKPOINT_PATHS`, which you must update for your machine (see below) |
+
+The policy checkpoints are not in this repository. Download them from the Hugging Face
+Model Hub:
+
+| Skill | Diffusion policy checkpoint (EMA, 60k steps) |
+|---|---|
+| `pick_place_pencil` | [hoonchew/diffusion_so101_pick_place_pencil_v3](https://huggingface.co/hoonchew/diffusion_so101_pick_place_pencil_v3) |
+| `pick_place_red_pen` | [hoonchew/diffusion_so101_pick_place_red_pen_v3](https://huggingface.co/hoonchew/diffusion_so101_pick_place_red_pen_v3) |
+| `pick_place_black_pen` | [hoonchew/diffusion_so101_pick_place_black_pen_v3](https://huggingface.co/hoonchew/diffusion_so101_pick_place_black_pen_v3) |
+
+```bash
+hf download hoonchew/diffusion_so101_pick_place_pencil_v3 --local-dir checkpoints/pick_place_pencil
+hf download hoonchew/diffusion_so101_pick_place_red_pen_v3 --local-dir checkpoints/pick_place_red_pen
+hf download hoonchew/diffusion_so101_pick_place_black_pen_v3 --local-dir checkpoints/pick_place_black_pen
+```
+
+Then update `CHECKPOINT_PATHS` in `LeRobotExecutor` (`utils/Executor.py`) so each skill
+points at its downloaded folder. Absolute paths are safest:
+
+```python
+CHECKPOINT_PATHS = {
+    "pick_place_pencil": "/path/to/checkpoints/pick_place_pencil",
+    "pick_place_red_pen": "/path/to/checkpoints/pick_place_red_pen",
+    "pick_place_black_pen": "/path/to/checkpoints/pick_place_black_pen",
+}
+```
+
+Simulation mode doesn't need them. The same account also has the
+[ACT baseline checkpoints](https://huggingface.co/hoonchew/act_so101_pick_place_pencil_v3)
+(`hoonchew/act_so101_pick_place_<skill>_v3`) and the
+[LeRobot datasets](https://huggingface.co/datasets/hoonchew/so101_pick_place_pencil_v3)
+(`hoonchew/so101_pick_place_<skill>_v3`).
 
 ### In simulation
 
